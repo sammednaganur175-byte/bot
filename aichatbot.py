@@ -1,6 +1,6 @@
 import os
 import time
-import socket
+import requests
 
 import speech_recognition as sr
 from google import genai
@@ -9,10 +9,9 @@ from gtts import gTTS
 from pygame import mixer
 import cv2
 
-# ESP8266 UDP Configuration
-ESP8266_IP = "10.109.142.186"  # Change this to your ESP8266 IP
-UDP_PORT = 8888
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+# ESP8266 Fixed IP Address
+ESP8266_IP = "10.109.142.186"  # Change this to your desired fixed IP
+ESP8266_URL = f"http://{ESP8266_IP}"
 
 # Initialize Clients and Mixer
 try:
@@ -28,45 +27,37 @@ except Exception as e:
 r = sr.Recognizer()
 mic = sr.Microphone()
 
-# ===== Motor Functions via ESP8266 UDP ===== #
+# ===== Motor Functions via ESP8266 ===== #
 def send_command(cmd):
-    print(f"[DEBUG] Attempting to send command: '{cmd}' to {ESP8266_IP}:{UDP_PORT}")
     try:
-        bytes_sent = sock.sendto(cmd.encode(), (ESP8266_IP, UDP_PORT))
-        print(f"[SUCCESS] Command '{cmd}' sent successfully! ({bytes_sent} bytes)")
-        return True
+        response = requests.get(f"{ESP8266_URL}/{cmd}", timeout=2)
+        return response.status_code == 200
     except Exception as e:
-        print(f"[ERROR] Failed to send command '{cmd}': {e}")
+        print(f"ESP8266 Error: {e}")
         return False
 
 def stop():
-    print("[COMMAND] STOP")
-    result = send_command("STOP")
-    print(f"[RESULT] Stop command {'SUCCESS' if result else 'FAILED'}")
+    send_command("stop")
 
 def forward():
-    print("[COMMAND] FORWARD")
-    result = send_command("FORWARD")
-    print(f"[RESULT] Forward command {'SUCCESS' if result else 'FAILED'}")
+    print("Moving Forward")
+    send_command("forward")
 
 def backward():
-    print("[COMMAND] BACKWARD")
-    result = send_command("BACKWARD")
-    print(f"[RESULT] Backward command {'SUCCESS' if result else 'FAILED'}")
+    print("Moving Backward")
+    send_command("backward")
 
 def left():
-    print("[COMMAND] LEFT")
-    result = send_command("LEFT")
-    print(f"[RESULT] Left command {'SUCCESS' if result else 'FAILED'}")
+    print("Turning Left")
+    send_command("left")
 
 def right():
-    print("[COMMAND] RIGHT")
-    result = send_command("RIGHT")
-    print(f"[RESULT] Right command {'SUCCESS' if result else 'FAILED'}")
+    print("Turning Right")
+    send_command("right")
 
 def rotate_in_place(step_time=0.4):
     print("Rotating in place for explore step...")
-    send_command("RIGHT")  # Use RIGHT for rotation
+    send_command("rotate")
     time.sleep(step_time)
     stop()
 
@@ -240,7 +231,7 @@ def run_assistant():
                 return True
 
             # Optional: stop car without exiting assistant
-            if matches(cmd, ["stop car", "stop moving", "halt", "freeze"]):
+            if matches(cmd, ["stop","stop car", "stop moving", "halt", "freeze" , "brake" , "pause" ,"wait"]):
                 speak_text("Stopping the car.")
                 stop()
                 return True
@@ -274,4 +265,4 @@ if __name__ == "__main__":
         while run_assistant():
             time.sleep(1)
     finally:
-        stop()
+        stop() 
