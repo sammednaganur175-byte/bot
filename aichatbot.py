@@ -16,6 +16,9 @@ ESP8266_URL = f"http://{ESP8266_IP}"
 # Initialize Clients and Mixer
 try:
     client = genai.Client()
+    # Initialize mixer with specific settings to avoid ALSA warnings
+    os.environ['SDL_AUDIODRIVER'] = 'pulse'
+    mixer.pre_init(frequency=22050, size=-16, channels=2, buffer=512)
     mixer.init()
 except Exception as e:
     print(f"Initialization Error: {e}")
@@ -256,7 +259,7 @@ def run_assistant():
 
 
 # ===== Main Entry ===== #
-if _name_ == "_main_":
+if __name__ == "__main__":
     try:
         speak_text("Hello, I am your Gemini assistant. What can I help you with?")
         while run_assistant():
