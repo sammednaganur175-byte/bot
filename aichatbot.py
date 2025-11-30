@@ -1,6 +1,7 @@
 import os
 import time
 import serial
+import threading
 
 import speech_recognition as sr
 from google import genai
@@ -8,11 +9,23 @@ from google.genai import types
 from gtts import gTTS
 from pygame import mixer
 import cv2
+from flask import Flask, render_template_string, request, jsonify
 
 # ESP8266 Serial Configuration
-SERIAL_PORT = "/dev/ttyUSB0"  # Change to your ESP8266 USB port
 BAUD_RATE = 115200
-ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+
+# Try to connect to serial, checking multiple USB ports
+ser = None
+for port in ["/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyUSB2", "/dev/ttyACM0", "/dev/ttyACM1"]:
+    try:
+        ser = serial.Serial(port, BAUD_RATE, timeout=1)
+        print(f"[SERIAL] Connected to {port}")
+        break
+    except:
+        continue
+
+if ser is None:
+    print("[SERIAL] No USB device found. Running in simulation mode.")
 
 # Initialize Clients and Mixer
 try:
@@ -28,8 +41,18 @@ except Exception as e:
 r = sr.Recognizer()
 mic = sr.Microphone()
 
+# Flask app for web control
+app = Flask(__name__)
+
+# Microphone control
+mic_lock = threading.Lock()
+current_mic_source = "raspberry_pi"  # "raspberry_pi" or "phone"
+
 # ===== Motor Functions via ESP8266 Serial ===== #
 def send_command(cmd):
+    if ser is None:
+        print(f"[SERIAL] Simulated: {cmd}")
+        return True
     try:
         ser.write(f"{cmd}\n".encode())
         print(f"[SERIAL] Sent: {cmd}")
@@ -261,8 +284,112 @@ def run_assistant():
     return True
 
 
+# ===== Flask Web Interface ===== #
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Voice Assistant</title>
+    <style>
+        body { background: #111; color: #eee; font-family: Arial; text-align: center; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .mic-control { background: #222; border-radius: 10px; padding: 20px; margin: 20px 0; }
+        .mic-status { padding: 15px; border-radius: 5px; margin: 15px 0; font-weight: bold; font-size: 18px; }
+        .mic-pi { background: #28a745; color: #fff; }
+        .mic-phone { background: #1e90ff; color: #fff; }
+        .btn { padding: 12px 20px; margin: 10px; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
+        .btn-primary { background: #1e90ff; color: #fff; }
+        .btn-success { background: #28a745; color: #fff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 AI Voice Assistant</h1>
+        <div class="mic-control">
+            <h3>Microphone Source</h3>
+            <div class="mic-status" id="mic-status">Current: Raspberry Pi Microphone</div>
+            <button class="btn btn-success" onclick="switchMic('raspberry_pi')">📱 Use Raspberry Pi Mic</button>
+            <button class="btn btn-primary" onclick="switchMic('phone')">📞 Use Phone Mic</button>
+        </div>
+    </div>
+    <script>
+        function switchMic(source) {
+            if (source === 'phone') {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        fetch('/set_mic_source/phone', { method: 'POST' })
+                            .then(r => r.json())
+                            .then(data => {
+                                document.getElementById('mic-status').textContent = 'Current: Phone Microphone';
+                                document.getElementById('mic-status').className = 'mic-status mic-phone';
+                            });
+                    })
+                    .catch(err => {
+                        alert('Microphone permission denied');
+                    });
+            } else {
+                fetch('/set_mic_source/raspberry_pi', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        document.getElementById('mic-status').textContent = 'Current: Raspberry Pi Microphone';
+                        document.getElementById('mic-status').className = 'mic-status mic-pi';
+                    });
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/set_mic_source/<source>', methods=['POST'])
+def set_mic_source(source):
+    global current_mic_source, mic
+    with mic_lock:
+        if source in ['raspberry_pi', 'phone']:
+            current_mic_source = source
+            print(f"[MIC] Switched to {source} microphone")
+            # Reinitialize microphone with new source
+            try:
+                if source == "phone":
+                    mic = sr.Microphone()  # Default device (phone when connected)
+                else:
+                    # Try to find Raspberry Pi microphone
+                    mic_list = sr.Microphone.list_microphone_names()
+                    for i, name in enumerate(mic_list):
+                        if any(keyword in name.lower() for keyword in ['usb', 'card']):
+                            mic = sr.Microphone(device_index=i)
+                            break
+                    else:
+                        mic = sr.Microphone()
+            except Exception as e:
+                print(f"[MIC] Error switching microphone: {e}")
+            return jsonify({"status": "success", "source": source})
+        else:
+            return jsonify({"status": "error", "message": "Invalid source"}), 400
+
+@app.route('/get_mic_source')
+def get_mic_source():
+    with mic_lock:
+        return jsonify({"source": current_mic_source})
+
+def run_flask():
+    print("[FLASK] Starting web server on http://0.0.0.0:5001")
+    app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)
+
 # ===== Main Entry ===== #
 if __name__ == "__main__":
+    # Start Flask server in background thread
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    
+    print("[INFO] Web interface: http://localhost:5001")
+    print(f"[INFO] Current microphone: {current_mic_source}")
+    
     try:
         speak_text("Hello, I am your Gemini assistant. What can I help you with?")
         while run_assistant():
