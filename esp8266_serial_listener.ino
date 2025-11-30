@@ -5,8 +5,8 @@
  */
 
 // Motor Speed (0 - 255) - PWM values
-int CURRENT_FORWARD_SPEED = 80;
-int CURRENT_TURN_SPEED = 80;
+int CURRENT_FORWARD_SPEED = 120;
+int CURRENT_TURN_SPEED = 120;
 
 // ================= PIN DEFINITIONS =================
 // L298N Motor Driver Pins

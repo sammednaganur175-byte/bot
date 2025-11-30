@@ -266,7 +266,7 @@ def run_assistant():
             print("Thinking with Gemini...")
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
-                contents=command
+                contents={"keep the reply short and simple and avoid using *"+command}
             )
             ai_reply = response.text
 
