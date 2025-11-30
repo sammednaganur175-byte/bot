@@ -95,10 +95,15 @@ def capture_image(index: int):
         print("Camera Error: cannot open camera")
         return None
 
+    # Warm up camera and discard first few frames
+    for _ in range(5):
+        cap.read()
+    time.sleep(0.5)
+    
     ret, frame = cap.read()
     cap.release()
 
-    if not ret:
+    if not ret or frame is None:
         print("Camera Error: cannot read frame")
         return None
 
