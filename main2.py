@@ -65,6 +65,11 @@ running = True
 mode_lock = threading.Lock()
 current_mode = "MANUAL"  # MANUAL or AUTO
 
+# Microphone control
+mic_lock = threading.Lock()
+current_mic_source = "raspberry_pi"  # "raspberry_pi" or "phone"
+phone_audio_stream = None
+
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 last_send_time = 0.0
 last_sent_cmd = None
@@ -428,6 +433,11 @@ HTML_PAGE = """
     .chat-input{display:flex;gap:10px}
     .chat-input input{flex:1;padding:10px;border:none;border-radius:5px;background:#444;color:#fff}
     .chat-input button{padding:10px 15px;background:#1e90ff;color:#fff;border:none;border-radius:5px;cursor:pointer}
+    .mic-control{max-width:400px;margin:20px auto;background:#222;border-radius:10px;padding:20px}
+    .mic-status{padding:10px;border-radius:5px;margin:10px 0;text-align:center;font-weight:bold}
+    .mic-pi{background:#28a745;color:#fff}
+    .mic-phone{background:#1e90ff;color:#fff}
+    .btn-mic{width:100%;margin:5px 0}
   </style>
 </head>
 <body>
@@ -465,6 +475,13 @@ HTML_PAGE = """
     <button class="btn" onclick="send('MOTOR_TEST')">MOTOR TEST</button>
   </div>
 
+  <div class="mic-control">
+    <h3>Microphone Control</h3>
+    <div class="mic-status" id="mic-status">Current: Raspberry Pi Microphone</div>
+    <button class="btn btn-mic" id="use-pi-mic" onclick="switchMic('raspberry_pi')">Use Raspberry Pi Microphone</button>
+    <button class="btn btn-mic" id="use-phone-mic" onclick="switchMic('phone')">Use Phone Microphone</button>
+  </div>
+
   <div class="chatbot">
     <h3>Car Assistant</h3>
     <div class="api-status" id="api-status">API Status: Checking...</div>
@@ -478,6 +495,8 @@ HTML_PAGE = """
 <script>
 let forwardSpeed = {{ forward_speed }};
 let turnSpeed = {{ turn_speed }};
+let mediaRecorder = null;
+let audioStream = null;
 
 function setMode(m){
   fetch('/set_mode/' + m).then(()=> location.reload());
@@ -532,6 +551,34 @@ function sendMessage(){
   .catch(e => addMessage('Error connecting to assistant', false));
 }
 
+function switchMic(source) {
+  if (source === 'phone') {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(stream => {
+        audioStream = stream;
+        fetch('/set_mic_source/phone', { method: 'POST' })
+          .then(() => {
+            document.getElementById('mic-status').textContent = 'Current: Phone Microphone';
+            document.getElementById('mic-status').className = 'mic-status mic-phone';
+          });
+      })
+      .catch(err => {
+        alert('Microphone permission denied or not available');
+        console.error('Error accessing microphone:', err);
+      });
+  } else {
+    if (audioStream) {
+      audioStream.getTracks().forEach(track => track.stop());
+      audioStream = null;
+    }
+    fetch('/set_mic_source/raspberry_pi', { method: 'POST' })
+      .then(() => {
+        document.getElementById('mic-status').textContent = 'Current: Raspberry Pi Microphone';
+        document.getElementById('mic-status').className = 'mic-status mic-pi';
+      });
+  }
+}
+
 // Check API status on page load
 fetch('/chat', {
   method: 'POST',
@@ -552,6 +599,16 @@ fetch('/chat', {
 .catch(e => {
   document.getElementById('api-status').textContent = 'API Status: Error';
 });
+
+// Initialize microphone status
+fetch('/get_mic_source')
+  .then(r => r.json())
+  .then(data => {
+    if (data.source === 'phone') {
+      document.getElementById('mic-status').textContent = 'Current: Phone Microphone';
+      document.getElementById('mic-status').className = 'mic-status mic-phone';
+    }
+  });
 </script>
 </body>
 </html>
@@ -592,6 +649,24 @@ def set_speed(speed_type, value):
     elif speed_type == 'turn':
         turn_speed = max(80, min(200, value))      # Minimum 80 for turning
     return "OK"
+
+# ===== CHATBOT ROUTES =====
+# ===== MICROPHONE ROUTES =====
+@app.route('/set_mic_source/<source>', methods=['POST'])
+def set_mic_source(source):
+    global current_mic_source, phone_audio_stream
+    with mic_lock:
+        if source in ['raspberry_pi', 'phone']:
+            current_mic_source = source
+            print(f"[MIC] Switched to {source} microphone")
+            return jsonify({"status": "success", "source": source})
+        else:
+            return jsonify({"status": "error", "message": "Invalid microphone source"}), 400
+
+@app.route('/get_mic_source')
+def get_mic_source():
+    with mic_lock:
+        return jsonify({"source": current_mic_source})
 
 # ===== CHATBOT ROUTES =====
 @app.route('/chat', methods=['POST'])

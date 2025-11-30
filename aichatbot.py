@@ -1,143 +1,355 @@
-import os
-import speech_recognition as sr
-from google import genai
-from gtts import gTTS
-from pygame import mixer
+# aichatbot.py - AI Chatbot with Microphone Switching
+from flask import Flask, render_template_string, request, jsonify
+import threading
 import time
-import socket
+import subprocess
+import sys
+import json
+import os
 
-# ===== CONFIG (matching main2.py) =====
-ESP8266_IP = "10.109.142.186"  # robot UDP IP
-ESP8266_PORT = 8888
-
-# UDP Socket
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-
-# Initialize Clients and Mixer
 try:
-    client = genai.Client()
-    mixer.init()
-except Exception as e:
-    print(f"Initialization Error: {e}")
-    exit()
+    import speech_recognition as sr
+except ImportError:
+    print("ERROR: Install speech-recognition: pip install SpeechRecognition")
+    sys.exit(1)
 
-r = sr.Recognizer()
-mic = sr.Microphone()
+try:
+    import pyttsx3
+except ImportError:
+    print("ERROR: Install pyttsx3: pip install pyttsx3")
+    sys.exit(1)
 
+# ===== CONFIG =====
+app = Flask(__name__)
 
-# ===== Motor Functions (UDP Commands) ===== #
-def send_command(cmd):
+# Microphone control
+mic_lock = threading.Lock()
+current_mic_source = "raspberry_pi"  # "raspberry_pi" or "phone"
+recognizer = sr.Recognizer()
+tts_engine = pyttsx3.init()
+
+# Set TTS properties
+tts_engine.setProperty('rate', 150)
+tts_engine.setProperty('volume', 0.9)
+
+def get_microphone_source():
+    """Get the appropriate microphone source based on current setting"""
+    with mic_lock:
+        if current_mic_source == "phone":
+            # For phone microphone, we'll use the default microphone
+            # which will be the phone's mic when connected via web
+            return sr.Microphone()
+        else:
+            # For Raspberry Pi, try to use the physical microphone
+            try:
+                # Try to find USB or built-in microphone
+                mic_list = sr.Microphone.list_microphone_names()
+                print(f"[MIC] Available microphones: {mic_list}")
+                
+                # Look for common Raspberry Pi microphone names
+                for i, name in enumerate(mic_list):
+                    if any(keyword in name.lower() for keyword in ['usb', 'card', 'device']):
+                        print(f"[MIC] Using Raspberry Pi microphone: {name}")
+                        return sr.Microphone(device_index=i)
+                
+                # Fallback to default microphone
+                print("[MIC] Using default Raspberry Pi microphone")
+                return sr.Microphone()
+            except Exception as e:
+                print(f"[MIC] Error setting up Raspberry Pi microphone: {e}")
+                return sr.Microphone()
+
+def listen_for_speech():
+    """Listen for speech and return recognized text"""
     try:
-        sock.sendto(cmd.encode(), (ESP8266_IP, ESP8266_PORT))
-        print(f"[UDP] -> {cmd}")
+        microphone = get_microphone_source()
+        
+        with microphone as source:
+            print("[SPEECH] Adjusting for ambient noise...")
+            recognizer.adjust_for_ambient_noise(source, duration=1)
+        
+        print(f"[SPEECH] Listening with {current_mic_source} microphone...")
+        with microphone as source:
+            # Listen for audio with timeout
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+        
+        print("[SPEECH] Processing speech...")
+        # Use Google Speech Recognition
+        text = recognizer.recognize_google(audio)
+        print(f"[SPEECH] Recognized: {text}")
+        return text
+        
+    except sr.WaitTimeoutError:
+        return "Timeout: No speech detected"
+    except sr.UnknownValueError:
+        return "Could not understand audio"
+    except sr.RequestError as e:
+        return f"Speech recognition error: {e}"
     except Exception as e:
-        print(f"[UDP] Error: {e}")
+        return f"Error: {e}"
 
-def stop():
-    send_command("STOP")
-
-def forward():
-    print("Moving Forward")
-    send_command("FORWARD:200")
-
-def backward():
-    print("Moving Backward")
-    send_command("BACKWARD")
-
-def left():
-    print("Turning Left")
-    send_command("LEFT:180")
-
-def right():
-    print("Turning Right")
-    send_command("RIGHT:180")
-
-
-# ===== Text-to-Speech ===== #
 def speak_text(text):
+    """Convert text to speech"""
     try:
-        tts = gTTS(text=text, lang='en')
-        tts.save("response.mp3")
-
-        mixer.music.load("response.mp3")
-        mixer.music.play()
-
-        while mixer.music.get_busy():
-            time.sleep(0.1)
-
-        os.remove("response.mp3")
-
+        print(f"[TTS] Speaking: {text}")
+        tts_engine.say(text)
+        tts_engine.runAndWait()
     except Exception as e:
-        print(f"TTS Error: {e}")
+        print(f"[TTS] Error: {e}")
 
+def process_voice_command(text):
+    """Process voice command and return response"""
+    text = text.lower().strip()
+    
+    # Simple command processing
+    if "hello" in text or "hi" in text:
+        return "Hello! How can I help you today?"
+    elif "time" in text:
+        import datetime
+        current_time = datetime.datetime.now().strftime("%I:%M %p")
+        return f"The current time is {current_time}"
+    elif "weather" in text:
+        return "I don't have access to weather data, but you can check your weather app."
+    elif "microphone" in text or "mic" in text:
+        return f"Currently using {current_mic_source} microphone"
+    elif "switch" in text and "phone" in text:
+        return "Please use the web interface to switch to phone microphone"
+    elif "switch" in text and ("pi" in text or "raspberry" in text):
+        return "Please use the web interface to switch to Raspberry Pi microphone"
+    else:
+        return "I heard you say: " + text + ". How can I help you with that?"
 
-# ===== Main Assistant Loop ===== #
-def run_assistant():
-    print("Assistant is ready. Speak now...")
+# ===== HTML TEMPLATE =====
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Voice Assistant</title>
+    <style>
+        body { background: #111; color: #eee; font-family: Arial; text-align: center; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .mic-control { background: #222; border-radius: 10px; padding: 20px; margin: 20px 0; }
+        .mic-status { padding: 15px; border-radius: 5px; margin: 15px 0; font-weight: bold; font-size: 18px; }
+        .mic-pi { background: #28a745; color: #fff; }
+        .mic-phone { background: #1e90ff; color: #fff; }
+        .btn { padding: 12px 20px; margin: 10px; font-size: 16px; border-radius: 6px; border: none; cursor: pointer; }
+        .btn-primary { background: #1e90ff; color: #fff; }
+        .btn-success { background: #28a745; color: #fff; }
+        .btn-danger { background: #dc3545; color: #fff; }
+        .btn-large { padding: 20px 30px; font-size: 20px; }
+        .voice-control { background: #333; border-radius: 10px; padding: 20px; margin: 20px 0; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .status-listening { background: #ffc107; color: #000; }
+        .status-processing { background: #17a2b8; color: #fff; }
+        .status-ready { background: #28a745; color: #fff; }
+        .response-box { background: #444; border-radius: 5px; padding: 15px; margin: 15px 0; text-align: left; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 AI Voice Assistant</h1>
+        
+        <div class="mic-control">
+            <h3>Microphone Source</h3>
+            <div class="mic-status" id="mic-status">Current: Raspberry Pi Microphone</div>
+            <button class="btn btn-success" onclick="switchMic('raspberry_pi')">📱 Use Raspberry Pi Mic</button>
+            <button class="btn btn-primary" onclick="switchMic('phone')">📞 Use Phone Mic</button>
+        </div>
+        
+        <div class="voice-control">
+            <h3>Voice Control</h3>
+            <div class="status status-ready" id="voice-status">Ready to listen</div>
+            <button class="btn btn-large btn-primary" id="listen-btn" onclick="startListening()">🎤 Start Listening</button>
+            <button class="btn btn-large btn-danger hidden" id="stop-btn" onclick="stopListening()">⏹️ Stop</button>
+        </div>
+        
+        <div class="response-box" id="response-box" style="display: none;">
+            <h4>Response:</h4>
+            <div id="response-text"></div>
+        </div>
+    </div>
 
-    with mic as source:
-        r.adjust_for_ambient_noise(source)
-        print("Listening...")
+    <script>
+        let isListening = false;
+        let currentMicSource = 'raspberry_pi';
 
-        try:
-            audio = r.listen(source)
-            command = r.recognize_google(audio)
-            print(f"You said: {command}")
+        function switchMic(source) {
+            fetch('/set_mic_source/' + source, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        currentMicSource = source;
+                        updateMicStatus(source);
+                        if (source === 'phone') {
+                            requestPhoneMicPermission();
+                        }
+                    }
+                })
+                .catch(e => console.error('Error switching microphone:', e));
+        }
 
-            cmd = command.lower()
+        function updateMicStatus(source) {
+            const statusEl = document.getElementById('mic-status');
+            if (source === 'phone') {
+                statusEl.textContent = 'Current: Phone Microphone';
+                statusEl.className = 'mic-status mic-phone';
+            } else {
+                statusEl.textContent = 'Current: Raspberry Pi Microphone';
+                statusEl.className = 'mic-status mic-pi';
+            }
+        }
 
-            # Exit command
-            if "exit" in cmd or "stop" in cmd:
-                speak_text("Goodbye!")
-                stop()
-                return True
+        function requestPhoneMicPermission() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        console.log('Phone microphone access granted');
+                        // Keep the stream active for the session
+                        window.phoneAudioStream = stream;
+                    })
+                    .catch(err => {
+                        alert('Microphone permission denied. Please allow microphone access and try again.');
+                        console.error('Microphone permission error:', err);
+                        // Switch back to Raspberry Pi mic
+                        switchMic('raspberry_pi');
+                    });
+            } else {
+                alert('Your browser does not support microphone access.');
+                switchMic('raspberry_pi');
+            }
+        }
 
-            # ===== Movement Commands (with return True) ===== #
-            if "move forward" in cmd:
-                speak_text("Moving forward!")
-                forward()
-                return True
+        function startListening() {
+            if (isListening) return;
+            
+            isListening = true;
+            document.getElementById('listen-btn').classList.add('hidden');
+            document.getElementById('stop-btn').classList.remove('hidden');
+            document.getElementById('voice-status').textContent = 'Listening...';
+            document.getElementById('voice-status').className = 'status status-listening';
+            
+            fetch('/listen', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('voice-status').textContent = 'Processing...';
+                    document.getElementById('voice-status').className = 'status status-processing';
+                    
+                    if (data.text && !data.text.includes('Error') && !data.text.includes('Timeout')) {
+                        return fetch('/process_command', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ text: data.text })
+                        });
+                    } else {
+                        throw new Error(data.text || 'No speech detected');
+                    }
+                })
+                .then(r => r.json())
+                .then(data => {
+                    showResponse(data.response);
+                    document.getElementById('voice-status').textContent = 'Ready to listen';
+                    document.getElementById('voice-status').className = 'status status-ready';
+                })
+                .catch(e => {
+                    showResponse('Error: ' + e.message);
+                    document.getElementById('voice-status').textContent = 'Ready to listen';
+                    document.getElementById('voice-status').className = 'status status-ready';
+                })
+                .finally(() => {
+                    stopListening();
+                });
+        }
 
-            elif "move back" in cmd:
-                speak_text("Moving backward!")
-                backward()
-                return True
+        function stopListening() {
+            isListening = false;
+            document.getElementById('listen-btn').classList.remove('hidden');
+            document.getElementById('stop-btn').classList.add('hidden');
+        }
 
-            elif "move left" in cmd:
-                speak_text("Turning left!")
-                left()
-                return True
+        function showResponse(text) {
+            document.getElementById('response-text').textContent = text;
+            document.getElementById('response-box').style.display = 'block';
+        }
 
-            elif "move right" in cmd:
-                speak_text("Turning right!")
-                right()
-                return True
+        // Initialize microphone status on page load
+        fetch('/get_mic_source')
+            .then(r => r.json())
+            .then(data => {
+                currentMicSource = data.source;
+                updateMicStatus(data.source);
+            });
+    </script>
+</body>
+</html>
+"""
 
-            # ===== Gemini AI Response ===== #
-            print("Thinking with Gemini...")
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=command
-            )
-            ai_reply = response.text
+# ===== FLASK ROUTES =====
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
 
-            print(f"Gemini replied: {ai_reply}")
-            speak_text(ai_reply)
+@app.route('/set_mic_source/<source>', methods=['POST'])
+def set_mic_source(source):
+    global current_mic_source
+    with mic_lock:
+        if source in ['raspberry_pi', 'phone']:
+            current_mic_source = source
+            print(f"[MIC] Switched to {source} microphone")
+            return jsonify({"status": "success", "source": source})
+        else:
+            return jsonify({"status": "error", "message": "Invalid microphone source"}), 400
 
-        except sr.UnknownValueError:
-            speak_text("Sorry, I did not catch that.")
-        except sr.RequestError:
-            speak_text("Speech recognition error. Please check your internet connection.")
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            speak_text("An internal error occurred.")
+@app.route('/get_mic_source')
+def get_mic_source():
+    with mic_lock:
+        return jsonify({"source": current_mic_source})
 
-    return True  # keep the loop running
+@app.route('/listen', methods=['POST'])
+def listen():
+    """Listen for speech and return recognized text"""
+    try:
+        text = listen_for_speech()
+        return jsonify({"text": text})
+    except Exception as e:
+        return jsonify({"text": f"Error: {str(e)}"})
 
+@app.route('/process_command', methods=['POST'])
+def process_command():
+    """Process voice command and return response"""
+    try:
+        data = request.get_json()
+        text = data.get('text', '')
+        
+        response = process_voice_command(text)
+        
+        # Speak the response
+        speak_thread = threading.Thread(target=speak_text, args=(response,))
+        speak_thread.daemon = True
+        speak_thread.start()
+        
+        return jsonify({"response": response})
+    except Exception as e:
+        return jsonify({"response": f"Error processing command: {str(e)}"})
 
-# ===== Main Entry ===== #
-if __name__ == "__main__":
-    speak_text("Hello, I am your Gemini assistant. What can I help you with?")
-    while run_assistant():
-        time.sleep(1)
+@app.route('/speak', methods=['POST'])
+def speak():
+    """Speak the provided text"""
+    try:
+        data = request.get_json()
+        text = data.get('text', '')
+        
+        speak_thread = threading.Thread(target=speak_text, args=(text,))
+        speak_thread.daemon = True
+        speak_thread.start()
+        
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+if __name__ == '__main__':
+    print("[CHATBOT] Starting AI Voice Assistant...")
+    print(f"[CHATBOT] Available microphones: {sr.Microphone.list_microphone_names()}")
+    print("[CHATBOT] Flask server starting on http://0.0.0.0:5001")
+    app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)
