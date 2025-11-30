@@ -20,7 +20,7 @@ except ImportError:
     try:
         import tensorflow.lite as tflite
     except ImportError:
-        print("ERROR: Install tensorflow")
+        print("ERROR: Install tflight-runtime or tensorflow")
         sys.exit(1)
 
 # ===== CONFIG =====

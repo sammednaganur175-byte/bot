@@ -1,0 +1,5 @@
+SpeechRecognition==3.10.0
+google-genai==0.2.2
+gTTS==2.5.0
+pygame==2.5.2
+PyAudio==0.2.14

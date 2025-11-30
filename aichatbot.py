@@ -4,25 +4,14 @@ from google import genai
 from gtts import gTTS
 from pygame import mixer
 import time
-import RPi.GPIO as GPIO
+import socket
 
-GPIO.setmode(GPIO.BCM)
+# ===== CONFIG (matching main2.py) =====
+ESP8266_IP = "10.109.142.186"  # robot UDP IP
+ESP8266_PORT = 8888
 
-# Left motor driver pins
-L_IN1 = 17
-L_IN2 = 27
-L_IN3 = 22
-L_IN4 = 23
-
-# Right motor driver pins
-R_IN1 = 5
-R_IN2 = 6
-R_IN3 = 13
-R_IN4 = 19
-
-motor_pins = [L_IN1, L_IN2, L_IN3, L_IN4, R_IN1, R_IN2, R_IN3, R_IN4]
-for pin in motor_pins:
-    GPIO.setup(pin, GPIO.OUT)
+# UDP Socket
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
 # Initialize Clients and Mixer
@@ -37,38 +26,32 @@ r = sr.Recognizer()
 mic = sr.Microphone()
 
 
-# ===== Motor Functions ===== #
+# ===== Motor Functions (UDP Commands) ===== #
+def send_command(cmd):
+    try:
+        sock.sendto(cmd.encode(), (ESP8266_IP, ESP8266_PORT))
+        print(f"[UDP] -> {cmd}")
+    except Exception as e:
+        print(f"[UDP] Error: {e}")
+
 def stop():
-    for pin in motor_pins:
-        GPIO.output(pin, GPIO.LOW)
+    send_command("STOP")
 
 def forward():
     print("Moving Forward")
-    GPIO.output(L_IN1, GPIO.HIGH)
-    GPIO.output(L_IN2, GPIO.LOW)
-    GPIO.output(R_IN1, GPIO.HIGH)
-    GPIO.output(R_IN2, GPIO.LOW)
+    send_command("FORWARD:200")
 
 def backward():
     print("Moving Backward")
-    GPIO.output(L_IN1, GPIO.LOW)
-    GPIO.output(L_IN2, GPIO.HIGH)
-    GPIO.output(R_IN1, GPIO.LOW)
-    GPIO.output(R_IN2, GPIO.HIGH)
+    send_command("BACKWARD")
 
 def left():
     print("Turning Left")
-    GPIO.output(L_IN1, GPIO.LOW)
-    GPIO.output(L_IN2, GPIO.HIGH)
-    GPIO.output(R_IN1, GPIO.HIGH)
-    GPIO.output(R_IN2, GPIO.LOW)
+    send_command("LEFT:180")
 
 def right():
     print("Turning Right")
-    GPIO.output(L_IN1, GPIO.HIGH)
-    GPIO.output(L_IN2, GPIO.LOW)
-    GPIO.output(R_IN1, GPIO.LOW)
-    GPIO.output(R_IN2, GPIO.HIGH)
+    send_command("RIGHT:180")
 
 
 # ===== Text-to-Speech ===== #
