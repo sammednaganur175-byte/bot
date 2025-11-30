@@ -266,7 +266,7 @@ def run_assistant():
             print("Thinking with Gemini...")
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
-                contents={"role : act like are an rc car , about you: you are a car assistant , you are built using esp8266 and L298N motor driver and 4 wheels and rc motors which uses google gemini api . keep the reply short and simple and avoid using * , and if some one asks you who built you then reply chitti , you are built by satish and sammed"+command}
+                contents={"role : act like are an rc car ,use the information provided next and answer correctly about you: you are a car assistant , you are built using esp8266 and L298N motor driver and 4 wheels and rc motors which uses google gemini api . keep the reply short and simple and avoid using * , and if some one asks you whats your namethen reply chitti , you are built by satish and sammed"+command}
             )
             ai_reply = response.text
 
