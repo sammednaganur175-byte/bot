@@ -1,12 +1,11 @@
-# main2.py - ESP32-CAM version
+# main2.py - Raspberry Pi Camera version
 from flask import Flask, render_template_string, Response, request, jsonify
 import threading
 import time
 import socket
 import requests
 import numpy as np
-from PIL import Image
-import io
+import subprocess
 import sys
 import json
 try:
@@ -25,7 +24,6 @@ except ImportError:
         sys.exit(1)
 
 # ===== CONFIG =====
-ESP32_STREAM_URL = "http://10.82.36.68/stream"  # ESP32-CAM IP
 ESP8266_IP = "10.82.36.186"  # robot UDP IP
 ESP8266_PORT = 8888
 ESP8266_STATUS_PORT = 8889  # For receiving status updates
@@ -90,32 +88,35 @@ input_channels = input_shape[3]
 input_index = input_details[0]['index']
 is_fomo = len(output_details) == 1 and len(output_details[0]['shape']) == 4
 
-# ===== MJPEG Stream Reader =====
-class MJPEGCamera:
-    def __init__(self, url):
-        self.url = url
+# ===== Raspberry Pi Camera =====
+class RPiCamera:
+    def __init__(self):
         self.frame = None
         self.running = False
         self.thread = None
+        self.process = None
         
     def start(self):
         self.running = True
-        self.thread = threading.Thread(target=self._read_stream)
+        self.thread = threading.Thread(target=self._capture_frames)
         self.thread.daemon = True
         self.thread.start()
-        time.sleep(1)  # Wait for first frame
+        time.sleep(2)
         
-    def _read_stream(self):
+    def _capture_frames(self):
         while self.running:
             try:
-                response = requests.get(self.url, stream=True, timeout=3)
+                cmd = ['rpicam-hello', '-t', '0', '--width', '640', '--height', '480', 
+                       '--codec', 'mjpeg', '-o', '-', '--nopreview']
+                self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10**8)
                 buffer = b''
-                for chunk in response.iter_content(chunk_size=4096):
-                    if not self.running:
+                
+                while self.running:
+                    chunk = self.process.stdout.read(4096)
+                    if not chunk:
                         break
                     buffer += chunk
                     
-                    # Process multiple frames in buffer
                     while True:
                         start = buffer.find(b'\xff\xd8')
                         if start == -1:
@@ -123,21 +124,20 @@ class MJPEGCamera:
                         end = buffer.find(b'\xff\xd9', start)
                         if end == -1:
                             break
-                            
+                        
                         jpeg_data = buffer[start:end+2]
                         buffer = buffer[end+2:]
                         
                         try:
-                            img = Image.open(io.BytesIO(jpeg_data))
-                            # Skip frame conversion if we already have a recent frame
-                            if self.frame is None or len(buffer) < 8192:
-                                self.frame = np.array(img)[:,:,::-1]
+                            frame = cv2.imdecode(np.frombuffer(jpeg_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                            if frame is not None:
+                                self.frame = frame
                         except:
                             pass
                             
             except Exception as e:
-                print(f"[CAMERA] Stream error: {e}")
-                time.sleep(0.5)
+                print(f"[CAMERA] Error: {e}")
+                time.sleep(1)
                 
     def read(self):
         return self.frame is not None, self.frame
@@ -147,16 +147,18 @@ class MJPEGCamera:
         
     def release(self):
         self.running = False
+        if self.process:
+            self.process.terminate()
         if self.thread:
             self.thread.join()
 
-print(f"[CAMERA] Connecting to ESP32-CAM at {ESP32_STREAM_URL}...")
-camera = MJPEGCamera(ESP32_STREAM_URL)
+print("[CAMERA] Starting Raspberry Pi Camera...")
+camera = RPiCamera()
 camera.start()
 if camera.isOpened():
-    print("[CAMERA] Connected to ESP32-CAM stream")
+    print("[CAMERA] Raspberry Pi Camera ready")
 else:
-    print("[ERROR] Cannot connect to ESP32-CAM stream")
+    print("[ERROR] Cannot start Raspberry Pi Camera")
     sys.exit(1)
 
 def send_burst(command, times, delay=0.05):
@@ -217,18 +219,8 @@ def tracking_loop():
     while running:
         ret, frame = camera.read()
         if not ret or frame is None:
-            print("[CAMERA] Stream disconnected, attempting reconnect...")
-            camera.release()
-            time.sleep(1)
-            try:
-                camera.release()
-                camera = MJPEGCamera(ESP32_STREAM_URL)
-                camera.start()
-                continue
-            except:
-                print("[CAMERA] Reconnection failed, retrying in 5 seconds...")
-                time.sleep(5)
-                continue
+            time.sleep(0.1)
+            continue
 
         img = cv2.resize(frame, (FRAME_W, FRAME_H))
         H, W = img.shape[:2]
