@@ -23,9 +23,9 @@ IPAddress pythonIP;
 // Motor Speed (0 - 255) - PWM values
 // INCREASED SPEED to overcome motor static friction
 int SPEED = 200;       // Default forward speed (increased)
-int TURN_SPEED = 120;  // Default turn speed (increased)
+int TURN_SPEED = 180;  // Default turn speed (increased for better turning)
 int CURRENT_FORWARD_SPEED = 200;
-int CURRENT_TURN_SPEED = 120;
+int CURRENT_TURN_SPEED = 180;
 
 // Individual motor speeds for differential control
 int leftMotorSpeed = 150;
@@ -153,11 +153,11 @@ void loop() {
         Backward();
       }
       else if (cmdType == "LEFT") {
-        CURRENT_TURN_SPEED = constrain(speed, 80, 200);  // Increased minimum
+        CURRENT_TURN_SPEED = constrain(speed, 120, 255);  // Increased minimum for better turning
         TurnLeft();
       }
       else if (cmdType == "RIGHT") {
-        CURRENT_TURN_SPEED = constrain(speed, 80, 200);  // Increased minimum
+        CURRENT_TURN_SPEED = constrain(speed, 120, 255);  // Increased minimum for better turning
         TurnRight();
       }
     }

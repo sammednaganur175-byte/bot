@@ -24,7 +24,7 @@ except ImportError:
         sys.exit(1)
 
 # ===== CONFIG =====
-ESP8266_IP = "10.82.36.186"  # robot UDP IP
+ESP8266_IP = "10.109.142.186"  # robot UDP IP
 ESP8266_PORT = 8888
 ESP8266_STATUS_PORT = 8889  # For receiving status updates
 
