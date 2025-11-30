@@ -8,21 +8,29 @@ import RPi.GPIO as GPIO
 
 GPIO.setmode(GPIO.BCM)
 
-# Left motor driver pins
-L_IN1 = 17
-L_IN2 = 27
-L_IN3 = 22
-L_IN4 = 23
+# L298N Motor Driver Pins (matching ESP8266 configuration)
+# Motor A (Left)
+ENA = 18  # PWM Speed Control
+IN1 = 17  # Direction 1
+IN2 = 27  # Direction 2
 
-# Right motor driver pins
-R_IN1 = 5
-R_IN2 = 6
-R_IN3 = 13
-R_IN4 = 19
+# Motor B (Right)
+ENB = 12  # PWM Speed Control
+IN3 = 22  # Direction 1
+IN4 = 23  # Direction 2
 
-motor_pins = [L_IN1, L_IN2, L_IN3, L_IN4, R_IN1, R_IN2, R_IN3, R_IN4]
+motor_pins = [ENA, IN1, IN2, ENB, IN3, IN4]
 for pin in motor_pins:
     GPIO.setup(pin, GPIO.OUT)
+
+# Setup PWM for speed control
+motor_a_pwm = GPIO.PWM(ENA, 1000)  # 1kHz frequency
+motor_b_pwm = GPIO.PWM(ENB, 1000)
+motor_a_pwm.start(0)
+motor_b_pwm.start(0)
+
+# Motor speed settings
+SPEED = 80  # Default speed (0-100%)
 
 
 # Initialize Clients and Mixer
@@ -39,36 +47,48 @@ mic = sr.Microphone()
 
 # ===== Motor Functions ===== #
 def stop():
-    for pin in motor_pins:
-        GPIO.output(pin, GPIO.LOW)
+    GPIO.output(IN1, GPIO.LOW)
+    GPIO.output(IN2, GPIO.LOW)
+    GPIO.output(IN3, GPIO.LOW)
+    GPIO.output(IN4, GPIO.LOW)
+    motor_a_pwm.ChangeDutyCycle(0)
+    motor_b_pwm.ChangeDutyCycle(0)
 
 def forward():
     print("Moving Forward")
-    GPIO.output(L_IN1, GPIO.HIGH)
-    GPIO.output(L_IN2, GPIO.LOW)
-    GPIO.output(R_IN1, GPIO.HIGH)
-    GPIO.output(R_IN2, GPIO.LOW)
+    GPIO.output(IN1, GPIO.HIGH)
+    GPIO.output(IN2, GPIO.LOW)
+    GPIO.output(IN3, GPIO.HIGH)
+    GPIO.output(IN4, GPIO.LOW)
+    motor_a_pwm.ChangeDutyCycle(SPEED)
+    motor_b_pwm.ChangeDutyCycle(SPEED)
 
 def backward():
     print("Moving Backward")
-    GPIO.output(L_IN1, GPIO.LOW)
-    GPIO.output(L_IN2, GPIO.HIGH)
-    GPIO.output(R_IN1, GPIO.LOW)
-    GPIO.output(R_IN2, GPIO.HIGH)
+    GPIO.output(IN1, GPIO.LOW)
+    GPIO.output(IN2, GPIO.HIGH)
+    GPIO.output(IN3, GPIO.LOW)
+    GPIO.output(IN4, GPIO.HIGH)
+    motor_a_pwm.ChangeDutyCycle(SPEED)
+    motor_b_pwm.ChangeDutyCycle(SPEED)
 
 def left():
     print("Turning Left")
-    GPIO.output(L_IN1, GPIO.LOW)
-    GPIO.output(L_IN2, GPIO.HIGH)
-    GPIO.output(R_IN1, GPIO.HIGH)
-    GPIO.output(R_IN2, GPIO.LOW)
+    GPIO.output(IN1, GPIO.LOW)
+    GPIO.output(IN2, GPIO.HIGH)
+    GPIO.output(IN3, GPIO.HIGH)
+    GPIO.output(IN4, GPIO.LOW)
+    motor_a_pwm.ChangeDutyCycle(SPEED)
+    motor_b_pwm.ChangeDutyCycle(SPEED)
 
 def right():
     print("Turning Right")
-    GPIO.output(L_IN1, GPIO.HIGH)
-    GPIO.output(L_IN2, GPIO.LOW)
-    GPIO.output(R_IN1, GPIO.LOW)
-    GPIO.output(R_IN2, GPIO.HIGH)
+    GPIO.output(IN1, GPIO.HIGH)
+    GPIO.output(IN2, GPIO.LOW)
+    GPIO.output(IN3, GPIO.LOW)
+    GPIO.output(IN4, GPIO.HIGH)
+    motor_a_pwm.ChangeDutyCycle(SPEED)
+    motor_b_pwm.ChangeDutyCycle(SPEED)
 
 
 # ===== Text-to-Speech ===== #
@@ -108,7 +128,10 @@ def run_assistant():
             if "exit" in cmd or "stop" in cmd:
                 speak_text("Goodbye!")
                 stop()
-                return True
+                motor_a_pwm.stop()
+                motor_b_pwm.stop()
+                GPIO.cleanup()
+                return False
 
             # ===== Movement Commands (with return True) ===== #
             if "move forward" in cmd:
