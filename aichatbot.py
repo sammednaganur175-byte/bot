@@ -10,7 +10,7 @@ from pygame import mixer
 import cv2
 
 # ESP8266 Fixed IP Address
-ESP8266_IP = "192.168.1.100"  # Change this to your desired fixed IP
+ESP8266_IP = "10.109.142.186"  # Change this to your desired fixed IP
 ESP8266_URL = f"http://{ESP8266_IP}"
 
 # Initialize Clients and Mixer
