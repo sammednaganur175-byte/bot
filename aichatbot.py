@@ -4,33 +4,12 @@ from google import genai
 from gtts import gTTS
 from pygame import mixer
 import time
-import RPi.GPIO as GPIO
+import socket
 
-GPIO.setmode(GPIO.BCM)
-
-# L298N Motor Driver Pins (matching ESP8266 configuration)
-# Motor A (Left)
-ENA = 18  # PWM Speed Control
-IN1 = 17  # Direction 1
-IN2 = 27  # Direction 2
-
-# Motor B (Right)
-ENB = 12  # PWM Speed Control
-IN3 = 22  # Direction 1
-IN4 = 23  # Direction 2
-
-motor_pins = [ENA, IN1, IN2, ENB, IN3, IN4]
-for pin in motor_pins:
-    GPIO.setup(pin, GPIO.OUT)
-
-# Setup PWM for speed control
-motor_a_pwm = GPIO.PWM(ENA, 1000)  # 1kHz frequency
-motor_b_pwm = GPIO.PWM(ENB, 1000)
-motor_a_pwm.start(0)
-motor_b_pwm.start(0)
-
-# Motor speed settings
-SPEED = 80  # Default speed (0-100%)
+# ESP8266 UDP Configuration
+ESP_IP = "10.109.142.186"  # Replace with your ESP8266 IP
+UDP_PORT = 8888
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
 # Initialize Clients and Mixer
@@ -45,50 +24,32 @@ r = sr.Recognizer()
 mic = sr.Microphone()
 
 
-# ===== Motor Functions ===== #
+# ===== UDP Command Functions ===== #
+def send_command(command):
+    try:
+        sock.sendto(command.encode(), (ESP_IP, UDP_PORT))
+        print(f"Sent: {command}")
+    except Exception as e:
+        print(f"UDP Error: {e}")
+
 def stop():
-    GPIO.output(IN1, GPIO.LOW)
-    GPIO.output(IN2, GPIO.LOW)
-    GPIO.output(IN3, GPIO.LOW)
-    GPIO.output(IN4, GPIO.LOW)
-    motor_a_pwm.ChangeDutyCycle(0)
-    motor_b_pwm.ChangeDutyCycle(0)
+    send_command("STOP")
 
 def forward():
     print("Moving Forward")
-    GPIO.output(IN1, GPIO.HIGH)
-    GPIO.output(IN2, GPIO.LOW)
-    GPIO.output(IN3, GPIO.HIGH)
-    GPIO.output(IN4, GPIO.LOW)
-    motor_a_pwm.ChangeDutyCycle(SPEED)
-    motor_b_pwm.ChangeDutyCycle(SPEED)
+    send_command("FORWARD")
 
 def backward():
     print("Moving Backward")
-    GPIO.output(IN1, GPIO.LOW)
-    GPIO.output(IN2, GPIO.HIGH)
-    GPIO.output(IN3, GPIO.LOW)
-    GPIO.output(IN4, GPIO.HIGH)
-    motor_a_pwm.ChangeDutyCycle(SPEED)
-    motor_b_pwm.ChangeDutyCycle(SPEED)
+    send_command("BACKWARD")
 
 def left():
     print("Turning Left")
-    GPIO.output(IN1, GPIO.LOW)
-    GPIO.output(IN2, GPIO.HIGH)
-    GPIO.output(IN3, GPIO.HIGH)
-    GPIO.output(IN4, GPIO.LOW)
-    motor_a_pwm.ChangeDutyCycle(SPEED)
-    motor_b_pwm.ChangeDutyCycle(SPEED)
+    send_command("LEFT")
 
 def right():
     print("Turning Right")
-    GPIO.output(IN1, GPIO.HIGH)
-    GPIO.output(IN2, GPIO.LOW)
-    GPIO.output(IN3, GPIO.LOW)
-    GPIO.output(IN4, GPIO.HIGH)
-    motor_a_pwm.ChangeDutyCycle(SPEED)
-    motor_b_pwm.ChangeDutyCycle(SPEED)
+    send_command("RIGHT")
 
 
 # ===== Text-to-Speech ===== #
@@ -128,9 +89,7 @@ def run_assistant():
             if "exit" in cmd or "stop" in cmd:
                 speak_text("Goodbye!")
                 stop()
-                motor_a_pwm.stop()
-                motor_b_pwm.stop()
-                GPIO.cleanup()
+                sock.close()
                 return False
 
             # ===== Movement Commands (with return True) ===== #
