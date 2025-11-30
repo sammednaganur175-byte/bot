@@ -7,17 +7,7 @@ import sys
 import json
 import os
 
-try:
-    import speech_recognition as sr
-except ImportError:
-    print("ERROR: Install speech-recognition: pip install SpeechRecognition")
-    sys.exit(1)
-
-try:
-    import pyttsx3
-except ImportError:
-    print("ERROR: Install pyttsx3: pip install pyttsx3")
-    sys.exit(1)
+# Speech libraries already available from requirements_voice.txt
 
 # ===== CONFIG =====
 app = Flask(__name__)
@@ -25,77 +15,11 @@ app = Flask(__name__)
 # Microphone control
 mic_lock = threading.Lock()
 current_mic_source = "raspberry_pi"  # "raspberry_pi" or "phone"
-recognizer = sr.Recognizer()
-tts_engine = pyttsx3.init()
 
-# Set TTS properties
-tts_engine.setProperty('rate', 150)
-tts_engine.setProperty('volume', 0.9)
-
-def get_microphone_source():
-    """Get the appropriate microphone source based on current setting"""
+def get_current_mic_source():
+    """Get current microphone source"""
     with mic_lock:
-        if current_mic_source == "phone":
-            # For phone microphone, we'll use the default microphone
-            # which will be the phone's mic when connected via web
-            return sr.Microphone()
-        else:
-            # For Raspberry Pi, try to use the physical microphone
-            try:
-                # Try to find USB or built-in microphone
-                mic_list = sr.Microphone.list_microphone_names()
-                print(f"[MIC] Available microphones: {mic_list}")
-                
-                # Look for common Raspberry Pi microphone names
-                for i, name in enumerate(mic_list):
-                    if any(keyword in name.lower() for keyword in ['usb', 'card', 'device']):
-                        print(f"[MIC] Using Raspberry Pi microphone: {name}")
-                        return sr.Microphone(device_index=i)
-                
-                # Fallback to default microphone
-                print("[MIC] Using default Raspberry Pi microphone")
-                return sr.Microphone()
-            except Exception as e:
-                print(f"[MIC] Error setting up Raspberry Pi microphone: {e}")
-                return sr.Microphone()
-
-def listen_for_speech():
-    """Listen for speech and return recognized text"""
-    try:
-        microphone = get_microphone_source()
-        
-        with microphone as source:
-            print("[SPEECH] Adjusting for ambient noise...")
-            recognizer.adjust_for_ambient_noise(source, duration=1)
-        
-        print(f"[SPEECH] Listening with {current_mic_source} microphone...")
-        with microphone as source:
-            # Listen for audio with timeout
-            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
-        
-        print("[SPEECH] Processing speech...")
-        # Use Google Speech Recognition
-        text = recognizer.recognize_google(audio)
-        print(f"[SPEECH] Recognized: {text}")
-        return text
-        
-    except sr.WaitTimeoutError:
-        return "Timeout: No speech detected"
-    except sr.UnknownValueError:
-        return "Could not understand audio"
-    except sr.RequestError as e:
-        return f"Speech recognition error: {e}"
-    except Exception as e:
-        return f"Error: {e}"
-
-def speak_text(text):
-    """Convert text to speech"""
-    try:
-        print(f"[TTS] Speaking: {text}")
-        tts_engine.say(text)
-        tts_engine.runAndWait()
-    except Exception as e:
-        print(f"[TTS] Error: {e}")
+        return current_mic_source
 
 def process_voice_command(text):
     """Process voice command and return response"""
