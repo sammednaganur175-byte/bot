@@ -232,48 +232,23 @@ def get_mic_source():
 
 @app.route('/listen', methods=['POST'])
 def listen():
-    """Listen for speech and return recognized text"""
-    try:
-        text = listen_for_speech()
-        return jsonify({"text": text})
-    except Exception as e:
-        return jsonify({"text": f"Error: {str(e)}"})
+    """Placeholder - integrate with existing speech system"""
+    return jsonify({"text": "Integrate with existing speech recognition system", "mic_source": current_mic_source})
 
 @app.route('/process_command', methods=['POST'])
 def process_command():
     """Process voice command and return response"""
-    try:
-        data = request.get_json()
-        text = data.get('text', '')
-        
-        response = process_voice_command(text)
-        
-        # Speak the response
-        speak_thread = threading.Thread(target=speak_text, args=(response,))
-        speak_thread.daemon = True
-        speak_thread.start()
-        
-        return jsonify({"response": response})
-    except Exception as e:
-        return jsonify({"response": f"Error processing command: {str(e)}"})
+    data = request.get_json()
+    text = data.get('text', '')
+    response = process_voice_command(text)
+    return jsonify({"response": response})
 
 @app.route('/speak', methods=['POST'])
 def speak():
-    """Speak the provided text"""
-    try:
-        data = request.get_json()
-        text = data.get('text', '')
-        
-        speak_thread = threading.Thread(target=speak_text, args=(text,))
-        speak_thread.daemon = True
-        speak_thread.start()
-        
-        return jsonify({"status": "success"})
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+    """Placeholder - integrate with existing TTS system"""
+    return jsonify({"status": "handled_by_existing_system", "mic_source": current_mic_source})
 
 if __name__ == '__main__':
     print("[CHATBOT] Starting AI Voice Assistant...")
-    print(f"[CHATBOT] Available microphones: {sr.Microphone.list_microphone_names()}")
     print("[CHATBOT] Flask server starting on http://0.0.0.0:5001")
     app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)
