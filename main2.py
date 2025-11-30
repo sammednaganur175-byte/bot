@@ -101,39 +101,24 @@ class RPiCamera:
         self.thread = threading.Thread(target=self._capture_frames)
         self.thread.daemon = True
         self.thread.start()
-        time.sleep(2)
+        time.sleep(3)
         
     def _capture_frames(self):
         while self.running:
             try:
-                cmd = ['rpicam-hello', '-t', '0', '--width', '640', '--height', '480', 
-                       '--codec', 'mjpeg', '-o', '-', '--nopreview']
-                self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=10**8)
-                buffer = b''
+                cmd = ['rpicam-jpeg', '-o', '-', '--width', '640', '--height', '480', 
+                       '--nopreview', '-n', '-t', '1']
                 
                 while self.running:
-                    chunk = self.process.stdout.read(4096)
-                    if not chunk:
-                        break
-                    buffer += chunk
-                    
-                    while True:
-                        start = buffer.find(b'\xff\xd8')
-                        if start == -1:
-                            break
-                        end = buffer.find(b'\xff\xd9', start)
-                        if end == -1:
-                            break
-                        
-                        jpeg_data = buffer[start:end+2]
-                        buffer = buffer[end+2:]
-                        
+                    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=2)
+                    if result.returncode == 0 and result.stdout:
                         try:
-                            frame = cv2.imdecode(np.frombuffer(jpeg_data, dtype=np.uint8), cv2.IMREAD_COLOR)
+                            frame = cv2.imdecode(np.frombuffer(result.stdout, dtype=np.uint8), cv2.IMREAD_COLOR)
                             if frame is not None:
                                 self.frame = frame
                         except:
                             pass
+                    time.sleep(0.03)
                             
             except Exception as e:
                 print(f"[CAMERA] Error: {e}")
@@ -155,11 +140,11 @@ class RPiCamera:
 print("[CAMERA] Starting Raspberry Pi Camera...")
 camera = RPiCamera()
 camera.start()
+time.sleep(1)
 if camera.isOpened():
     print("[CAMERA] Raspberry Pi Camera ready")
 else:
-    print("[ERROR] Cannot start Raspberry Pi Camera")
-    sys.exit(1)
+    print("[CAMERA] Waiting for camera initialization...")
 
 def send_burst(command, times, delay=0.05):
     for _ in range(times):
