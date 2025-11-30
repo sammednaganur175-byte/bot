@@ -30,32 +30,39 @@ mic = sr.Microphone()
 
 # ===== Motor Functions via ESP8266 UDP ===== #
 def send_command(cmd):
+    print(f"[DEBUG] Attempting to send command: '{cmd}' to {ESP8266_IP}:{UDP_PORT}")
     try:
-        sock.sendto(cmd.encode(), (ESP8266_IP, UDP_PORT))
-        print(f"Sent UDP: {cmd}")
+        bytes_sent = sock.sendto(cmd.encode(), (ESP8266_IP, UDP_PORT))
+        print(f"[SUCCESS] Command '{cmd}' sent successfully! ({bytes_sent} bytes)")
         return True
     except Exception as e:
-        print(f"ESP8266 UDP Error: {e}")
+        print(f"[ERROR] Failed to send command '{cmd}': {e}")
         return False
 
 def stop():
-    send_command("STOP")
+    print("[COMMAND] STOP")
+    result = send_command("STOP")
+    print(f"[RESULT] Stop command {'SUCCESS' if result else 'FAILED'}")
 
 def forward():
-    print("Moving Forward")
-    send_command("FORWARD")
+    print("[COMMAND] FORWARD")
+    result = send_command("FORWARD")
+    print(f"[RESULT] Forward command {'SUCCESS' if result else 'FAILED'}")
 
 def backward():
-    print("Moving Backward")
-    send_command("BACKWARD")
+    print("[COMMAND] BACKWARD")
+    result = send_command("BACKWARD")
+    print(f"[RESULT] Backward command {'SUCCESS' if result else 'FAILED'}")
 
 def left():
-    print("Turning Left")
-    send_command("LEFT")
+    print("[COMMAND] LEFT")
+    result = send_command("LEFT")
+    print(f"[RESULT] Left command {'SUCCESS' if result else 'FAILED'}")
 
 def right():
-    print("Turning Right")
-    send_command("RIGHT")
+    print("[COMMAND] RIGHT")
+    result = send_command("RIGHT")
+    print(f"[RESULT] Right command {'SUCCESS' if result else 'FAILED'}")
 
 def rotate_in_place(step_time=0.4):
     print("Rotating in place for explore step...")
