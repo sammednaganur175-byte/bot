@@ -1,16 +1,17 @@
 import os
+import time
+import requests
+
 import speech_recognition as sr
 from google import genai
+from google.genai import types
 from gtts import gTTS
 from pygame import mixer
-import time
-import socket
+import cv2
 
-# ESP8266 UDP Configuration
-ESP_IP = "10.109.142.186"  # Replace with your ESP8266 IP
-UDP_PORT = 8888
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
+# ESP8266 Fixed IP Address
+ESP8266_IP = "192.168.1.100"  # Change this to your desired fixed IP
+ESP8266_URL = f"http://{ESP8266_IP}"
 
 # Initialize Clients and Mixer
 try:
@@ -18,38 +19,124 @@ try:
     mixer.init()
 except Exception as e:
     print(f"Initialization Error: {e}")
-    exit()
+    raise SystemExit
 
 r = sr.Recognizer()
 mic = sr.Microphone()
 
-
-# ===== UDP Command Functions ===== #
-def send_command(command):
+# ===== Motor Functions via ESP8266 ===== #
+def send_command(cmd):
     try:
-        sock.sendto(command.encode(), (ESP_IP, UDP_PORT))
-        print(f"Sent: {command}")
+        response = requests.get(f"{ESP8266_URL}/{cmd}", timeout=2)
+        return response.status_code == 200
     except Exception as e:
-        print(f"UDP Error: {e}")
+        print(f"ESP8266 Error: {e}")
+        return False
 
 def stop():
-    send_command("STOP")
+    send_command("stop")
 
 def forward():
     print("Moving Forward")
-    send_command("FORWARD")
+    send_command("forward")
 
 def backward():
     print("Moving Backward")
-    send_command("BACKWARD")
+    send_command("backward")
 
 def left():
     print("Turning Left")
-    send_command("LEFT")
+    send_command("left")
 
 def right():
     print("Turning Right")
-    send_command("RIGHT")
+    send_command("right")
+
+def rotate_in_place(step_time=0.4):
+    print("Rotating in place for explore step...")
+    send_command("rotate")
+    time.sleep(step_time)
+    stop()
+
+
+# ===== Camera / Explore Helpers ===== #
+def capture_image(index: int):
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Camera Error: cannot open camera")
+        return None
+
+    ret, frame = cap.read()
+    cap.release()
+
+    if not ret:
+        print("Camera Error: cannot read frame")
+        return None
+
+    filename = f"explore_{index}.jpg"
+    cv2.imwrite(filename, frame)
+    print(f"Captured image: {filename}")
+    return filename
+
+
+def explore_mode():
+    speak_text("Starting explore mode. Please wait while I scan the surroundings.")
+    stop()
+
+    image_paths = []
+
+    for i in range(8):
+        rotate_in_place(step_time=0.4)
+        time.sleep(2.0)
+        img_path = capture_image(i)
+        if img_path:
+            image_paths.append(img_path)
+
+    if not image_paths:
+        speak_text("I could not capture any images. Please check the camera.")
+        return
+
+    parts = []
+    for path in image_paths:
+        try:
+            with open(path, "rb") as f:
+                image_bytes = f.read()
+            parts.append(
+                types.Part.from_bytes(
+                    data=image_bytes,
+                    mime_type="image/jpeg",
+                )
+            )
+        except Exception as e:
+            print(f"Error reading image {path}: {e}")
+
+    parts.append(
+        "These are 8 images taken while a small robot rotated in place."
+        " Describe, in simple language, what is around the robot: "
+        "things like walls, doors, open spaces, obstacles, people, or furniture."
+        " Give a short summary of the surroundings."
+    )
+
+    try:
+        print("Sending images to Gemini for analysis...")
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=parts,
+        )
+        description = response.text
+        print("Gemini explore description:", description)
+        speak_text(description)
+    except Exception as e:
+        print(f"Gemini explore error: {e}")
+        speak_text("There was an error analyzing the images.")
+
+    for path in image_paths:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    stop()
 
 
 # ===== Text-to-Speech ===== #
@@ -70,6 +157,11 @@ def speak_text(text):
         print(f"TTS Error: {e}")
 
 
+# ===== Command Matching Helpers ===== #
+def matches(cmd: str, phrases):
+    return any(p in cmd for p in phrases)
+
+
 # ===== Main Assistant Loop ===== #
 def run_assistant():
     print("Assistant is ready. Speak now...")
@@ -83,37 +175,65 @@ def run_assistant():
             command = r.recognize_google(audio)
             print(f"You said: {command}")
 
-            cmd = command.lower()
+            cmd = command.lower().strip()
 
             # Exit command
-            if "exit" in cmd or "stop" in cmd:
+            if "exit" in cmd or "stop assistant" in cmd or "shutdown" in cmd:
                 speak_text("Goodbye!")
                 stop()
-                sock.close()
                 return False
 
-            # ===== Movement Commands (with return True) ===== #
-            if "move forward" in cmd:
-                speak_text("Moving forward!")
+            # ===== Explore Mode ===== #
+            if matches(cmd, ["explore", "explore mode", "scan area",
+                             "scan surroundings", "what is around", "what's around"]):
+                explore_mode()
+                return True
+
+            # ===== Movement Commands with Flexible Phrases ===== #
+
+            # Forward
+            if matches(cmd, [
+                "move forward", "go forward", "forward", "come forward",
+                "go straight", "move straight", "drive forward"
+            ]):
+                speak_text("Moving forward.")
                 forward()
                 return True
 
-            elif "move back" in cmd:
-                speak_text("Moving backward!")
+            # Backward
+            if matches(cmd, [
+                "move back", "go back", "move backward", "go backward",
+                "reverse", "back up", "go in reverse"
+            ]):
+                speak_text("Moving backward.")
                 backward()
                 return True
 
-            elif "move left" in cmd:
-                speak_text("Turning left!")
+            # Left
+            if matches(cmd, [
+                "move left", "go left", "turn left", "take left",
+                "rotate left"
+            ]):
+                speak_text("Turning left.")
                 left()
                 return True
 
-            elif "move right" in cmd:
-                speak_text("Turning right!")
+            # Right
+            if matches(cmd, [
+                "move right", "go right", "turn right", "take right",
+                "rotate right"
+            ]):
+                speak_text("Turning right.")
                 right()
                 return True
 
-            # ===== Gemini AI Response ===== #
+            # Optional: stop car without exiting assistant
+            if matches(cmd, ["stop car", "stop moving", "halt", "freeze"]):
+                speak_text("Stopping the car.")
+                stop()
+                return True
+
+            # ===== Gemini AI Response for General Questions ===== #
             print("Thinking with Gemini...")
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
@@ -132,11 +252,14 @@ def run_assistant():
             print(f"Unexpected error: {e}")
             speak_text("An internal error occurred.")
 
-    return True  # keep the loop running
+    return True
 
 
 # ===== Main Entry ===== #
-if __name__ == "__main__":
-    speak_text("Hello, I am your Gemini assistant. What can I help you with?")
-    while run_assistant():
-        time.sleep(1)
+if _name_ == "_main_":
+    try:
+        speak_text("Hello, I am your Gemini assistant. What can I help you with?")
+        while run_assistant():
+            time.sleep(1)
+    finally:
+        stop()
