@@ -1,6 +1,6 @@
 import os
 import time
-import requests
+import socket
 
 import speech_recognition as sr
 from google import genai
@@ -9,9 +9,10 @@ from gtts import gTTS
 from pygame import mixer
 import cv2
 
-# ESP8266 Fixed IP Address
-ESP8266_IP = "10.109.142.186"  # Change this to your desired fixed IP
-ESP8266_URL = f"http://{ESP8266_IP}"
+# ESP8266 UDP Configuration
+ESP8266_IP = "10.109.142.186"  # Change this to your ESP8266 IP
+UDP_PORT = 8888
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # Initialize Clients and Mixer
 try:
@@ -27,37 +28,38 @@ except Exception as e:
 r = sr.Recognizer()
 mic = sr.Microphone()
 
-# ===== Motor Functions via ESP8266 ===== #
+# ===== Motor Functions via ESP8266 UDP ===== #
 def send_command(cmd):
     try:
-        response = requests.get(f"{ESP8266_URL}/{cmd}", timeout=2)
-        return response.status_code == 200
+        sock.sendto(cmd.encode(), (ESP8266_IP, UDP_PORT))
+        print(f"Sent UDP: {cmd}")
+        return True
     except Exception as e:
-        print(f"ESP8266 Error: {e}")
+        print(f"ESP8266 UDP Error: {e}")
         return False
 
 def stop():
-    send_command("stop")
+    send_command("STOP")
 
 def forward():
     print("Moving Forward")
-    send_command("forward")
+    send_command("FORWARD")
 
 def backward():
     print("Moving Backward")
-    send_command("backward")
+    send_command("BACKWARD")
 
 def left():
     print("Turning Left")
-    send_command("left")
+    send_command("LEFT")
 
 def right():
     print("Turning Right")
-    send_command("right")
+    send_command("RIGHT")
 
 def rotate_in_place(step_time=0.4):
     print("Rotating in place for explore step...")
-    send_command("rotate")
+    send_command("RIGHT")  # Use RIGHT for rotation
     time.sleep(step_time)
     stop()
 
