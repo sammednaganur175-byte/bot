@@ -1,6 +1,6 @@
 import os
 import time
-import requests
+import serial
 
 import speech_recognition as sr
 from google import genai
@@ -9,9 +9,10 @@ from gtts import gTTS
 from pygame import mixer
 import cv2
 
-# ESP8266 Fixed IP Address
-ESP8266_IP = "10.109.142.186"  # Change this to your desired fixed IP
-ESP8266_URL = f"http://{ESP8266_IP}"
+# ESP8266 Serial Configuration
+SERIAL_PORT = "/dev/ttyUSB0"  # Change to your ESP8266 USB port
+BAUD_RATE = 115200
+ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
 
 # Initialize Clients and Mixer
 try:
@@ -27,37 +28,39 @@ except Exception as e:
 r = sr.Recognizer()
 mic = sr.Microphone()
 
-# ===== Motor Functions via ESP8266 ===== #
+# ===== Motor Functions via ESP8266 Serial ===== #
 def send_command(cmd):
     try:
-        response = requests.get(f"{ESP8266_URL}/{cmd}", timeout=2)
-        return response.status_code == 200
+        ser.write(f"{cmd}\n".encode())
+        print(f"[SERIAL] Sent: {cmd}")
+        return True
     except Exception as e:
-        print(f"ESP8266 Error: {e}")
+        print(f"[ERROR] Serial Error: {e}")
         return False
 
 def stop():
-    send_command("stop")
+    print("[COMMAND] STOP")
+    send_command("STOP")
 
 def forward():
-    print("Moving Forward")
-    send_command("forward")
+    print("[COMMAND] FORWARD")
+    send_command("FORWARD")
 
 def backward():
-    print("Moving Backward")
-    send_command("backward")
+    print("[COMMAND] BACKWARD")
+    send_command("BACKWARD")
 
 def left():
-    print("Turning Left")
-    send_command("left")
+    print("[COMMAND] LEFT")
+    send_command("LEFT")
 
 def right():
-    print("Turning Right")
-    send_command("right")
+    print("[COMMAND] RIGHT")
+    send_command("RIGHT")
 
 def rotate_in_place(step_time=0.4):
-    print("Rotating in place for explore step...")
-    send_command("rotate")
+    print("[EXPLORE] Rotating in place...")
+    send_command("RIGHT")
     time.sleep(step_time)
     stop()
 
