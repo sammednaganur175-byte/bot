@@ -12,7 +12,7 @@
 
 // ================= CONFIGURATION =================
 // !!! CHANGE THESE TO YOUR WIFI CREDENTIALS !!!
-const char* ssid = "Poco M6 Pro 5g";
+const char* ssid = "Reels";
 const char* password = "12345679";
 
 // UDP Settings (Must match Python script)
@@ -21,11 +21,11 @@ unsigned int statusPort = 8889;
 IPAddress pythonIP;
 
 // Motor Speed (0 - 255) - PWM values
-// INCREASED SPEED to overcome motor static friction
-int SPEED = 200;       // Default forward speed (increased)
-int TURN_SPEED = 180;  // Default turn speed (increased for better turning)
-int CURRENT_FORWARD_SPEED = 200;
-int CURRENT_TURN_SPEED = 180;
+// Reduced speed for better control
+int SPEED = 80;        // Default forward speed
+int TURN_SPEED = 80;   // Default turn speed
+int CURRENT_FORWARD_SPEED = 80;
+int CURRENT_TURN_SPEED = 80;
 
 // Individual motor speeds for differential control
 int leftMotorSpeed = 150;
@@ -34,8 +34,8 @@ int rightMotorSpeed = 150;
 // Ultrasonic Safety Settings
 #define TRIG_PIN D6
 #define ECHO_PIN D7
-#define MAX_DISTANCE 200 // Maximum distance we want to ping for (in cm)
-#define SAFE_DISTANCE 100 // Stop if obstacle is closer than this (in cm)
+#define MAX_DISTANCE 100 // Maximum distance we want to ping for (in cm)
+#define SAFE_DISTANCE 50 // Stop if obstacle is closer than this (in cm)
 
 // ================= PIN DEFINITIONS =================
 // L298N Motor Driver Pins
@@ -153,11 +153,11 @@ void loop() {
         Backward();
       }
       else if (cmdType == "LEFT") {
-        CURRENT_TURN_SPEED = constrain(speed, 120, 255);  // Increased minimum for better turning
+        CURRENT_TURN_SPEED = constrain(speed, 80, 200);  // Increased minimum
         TurnLeft();
       }
       else if (cmdType == "RIGHT") {
-        CURRENT_TURN_SPEED = constrain(speed, 120, 255);  // Increased minimum for better turning
+        CURRENT_TURN_SPEED = constrain(speed, 80, 200);  // Increased minimum
         TurnRight();
       }
     }
