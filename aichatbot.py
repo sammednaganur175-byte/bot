@@ -7,7 +7,17 @@ import sys
 import json
 import os
 
-# Speech libraries already available from requirements_voice.txt
+try:
+    import speech_recognition as sr
+except ImportError:
+    print("ERROR: Install speech-recognition: pip install SpeechRecognition")
+    sys.exit(1)
+
+try:
+    import pyttsx3
+except ImportError:
+    print("ERROR: Install pyttsx3: pip install pyttsx3")
+    sys.exit(1)
 
 # ===== CONFIG =====
 app = Flask(__name__)
@@ -15,11 +25,77 @@ app = Flask(__name__)
 # Microphone control
 mic_lock = threading.Lock()
 current_mic_source = "raspberry_pi"  # "raspberry_pi" or "phone"
+recognizer = sr.Recognizer()
+tts_engine = pyttsx3.init()
 
-def get_current_mic_source():
-    """Get current microphone source"""
+# Set TTS properties
+tts_engine.setProperty('rate', 150)
+tts_engine.setProperty('volume', 0.9)
+
+def get_microphone_source():
+    """Get the appropriate microphone source based on current setting"""
     with mic_lock:
-        return current_mic_source
+        if current_mic_source == "phone":
+            # For phone microphone, we'll use the default microphone
+            # which will be the phone's mic when connected via web
+            return sr.Microphone()
+        else:
+            # For Raspberry Pi, try to use the physical microphone
+            try:
+                # Try to find USB or built-in microphone
+                mic_list = sr.Microphone.list_microphone_names()
+                print(f"[MIC] Available microphones: {mic_list}")
+                
+                # Look for common Raspberry Pi microphone names
+                for i, name in enumerate(mic_list):
+                    if any(keyword in name.lower() for keyword in ['usb', 'card', 'device']):
+                        print(f"[MIC] Using Raspberry Pi microphone: {name}")
+                        return sr.Microphone(device_index=i)
+                
+                # Fallback to default microphone
+                print("[MIC] Using default Raspberry Pi microphone")
+                return sr.Microphone()
+            except Exception as e:
+                print(f"[MIC] Error setting up Raspberry Pi microphone: {e}")
+                return sr.Microphone()
+
+def listen_for_speech():
+    """Listen for speech and return recognized text"""
+    try:
+        microphone = get_microphone_source()
+        
+        with microphone as source:
+            print("[SPEECH] Adjusting for ambient noise...")
+            recognizer.adjust_for_ambient_noise(source, duration=1)
+        
+        print(f"[SPEECH] Listening with {current_mic_source} microphone...")
+        with microphone as source:
+            # Listen for audio with timeout
+            audio = recognizer.listen(source, timeout=5, phrase_time_limit=10)
+        
+        print("[SPEECH] Processing speech...")
+        # Use Google Speech Recognition
+        text = recognizer.recognize_google(audio)
+        print(f"[SPEECH] Recognized: {text}")
+        return text
+        
+    except sr.WaitTimeoutError:
+        return "Timeout: No speech detected"
+    except sr.UnknownValueError:
+        return "Could not understand audio"
+    except sr.RequestError as e:
+        return f"Speech recognition error: {e}"
+    except Exception as e:
+        return f"Error: {e}"
+
+def speak_text(text):
+    """Convert text to speech"""
+    try:
+        print(f"[TTS] Speaking: {text}")
+        tts_engine.say(text)
+        tts_engine.runAndWait()
+    except Exception as e:
+        print(f"[TTS] Error: {e}")
 
 def process_voice_command(text):
     """Process voice command and return response"""
@@ -154,62 +230,130 @@ HTML_TEMPLATE = """
             document.getElementById('voice-status').textContent = 'Listening...';
             document.getElementById('voice-status').className = 'status status-listening';
             
-            fetch('/listen', { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('voice-status').textContent = 'Processing...';
-                    document.getElementById('voice-status').className = 'status status-processing';
-                    
-                    if (data.text && !data.text.includes('Error') && !data.text.includes('Timeout')) {
-                        return fetch('/process_command', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ text: data.text })
-                        });
-                    } else {
-                        throw new Error(data.text || 'No speech detected');
-                    }
-                })
-                .then(r => r.json())
-                .then(data => {
-                    showResponse(data.response);
-                    document.getElementById('voice-status').textContent = 'Ready to listen';
-                    document.getElementById('voice-status').className = 'status status-ready';
-                })
-                .catch(e => {
-                    showResponse('Error: ' + e.message);
-                    document.getElementById('voice-status').textContent = 'Ready to listen';
-                    document.getElementById('voice-status').className = 'status status-ready';
-                })
-                .finally(() => {
-                    stopListening();
-                });
+            if (currentMicSource === 'phone') {
+                startPhoneListening();
+            } else {
+                startRaspberryPiListening();
+            }
         }
 
         function stopListening() {
             isListening = false;
             document.getElementById('listen-btn').classList.remove('hidden');
             document.getElementById('stop-btn').classList.add('hidden');
+            document.getElementById('voice-status').textContent = 'Ready to listen';
+            document.getElementById('voice-status').className = 'status status-ready';
+            
+            if (window.recognition) {
+                window.recognition.stop();
+            }
         }
 
-        function showResponse(text) {
-            document.getElementById('response-text').textContent = text;
-            document.getElementById('response-box').style.display = 'block';
+        function startPhoneListening() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                alert('Speech recognition not supported in this browser');
+                stopListening();
+                return;
+            }
+            
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            window.recognition = new SpeechRecognition();
+            
+            window.recognition.continuous = false;
+            window.recognition.interimResults = false;
+            window.recognition.lang = 'en-US';
+            
+            window.recognition.onresult = function(event) {
+                const transcript = event.results[0][0].transcript;
+                processVoiceInput(transcript);
+            };
+            
+            window.recognition.onerror = function(event) {
+                console.error('Speech recognition error:', event.error);
+                document.getElementById('response-text').textContent = 'Error: ' + event.error;
+                document.getElementById('response-box').style.display = 'block';
+                stopListening();
+            };
+            
+            window.recognition.onend = function() {
+                if (isListening) {
+                    stopListening();
+                }
+            };
+            
+            window.recognition.start();
         }
 
-        // Initialize microphone status on page load
+        function startRaspberryPiListening() {
+            document.getElementById('voice-status').textContent = 'Processing on Raspberry Pi...';
+            document.getElementById('voice-status').className = 'status status-processing';
+            
+            fetch('/listen', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.text && !data.text.includes('Error') && !data.text.includes('Timeout')) {
+                        processVoiceInput(data.text);
+                    } else {
+                        document.getElementById('response-text').textContent = data.text || 'No speech detected';
+                        document.getElementById('response-box').style.display = 'block';
+                        stopListening();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('response-text').textContent = 'Connection error';
+                    document.getElementById('response-box').style.display = 'block';
+                    stopListening();
+                });
+        }
+
+        function processVoiceInput(text) {
+            document.getElementById('voice-status').textContent = 'Processing response...';
+            document.getElementById('voice-status').className = 'status status-processing';
+            
+            fetch('/process_voice', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('response-text').innerHTML = 
+                    `<strong>You said:</strong> "${text}"<br><br><strong>Response:</strong> ${data.response}`;
+                document.getElementById('response-box').style.display = 'block';
+                
+                // Speak the response if using Raspberry Pi
+                if (currentMicSource === 'raspberry_pi' && data.response) {
+                    fetch('/speak', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: data.response })
+                    });
+                }
+                
+                stopListening();
+            })
+            .catch(error => {
+                console.error('Error processing voice:', error);
+                document.getElementById('response-text').textContent = 'Error processing voice command';
+                document.getElementById('response-box').style.display = 'block';
+                stopListening();
+            });
+        }
+
+        // Initialize mic status on page load
         fetch('/get_mic_source')
             .then(r => r.json())
             .then(data => {
-                currentMicSource = data.source;
-                updateMicStatus(data.source);
+                currentMicSource = data.mic_source;
+                updateMicStatus(currentMicSource);
             });
     </script>
 </body>
 </html>
 """
 
-# ===== FLASK ROUTES =====
+# ===== WEB ROUTES =====
 @app.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE)
@@ -217,38 +361,57 @@ def index():
 @app.route('/set_mic_source/<source>', methods=['POST'])
 def set_mic_source(source):
     global current_mic_source
-    with mic_lock:
-        if source in ['raspberry_pi', 'phone']:
+    if source in ['raspberry_pi', 'phone']:
+        with mic_lock:
             current_mic_source = source
-            print(f"[MIC] Switched to {source} microphone")
-            return jsonify({"status": "success", "source": source})
-        else:
-            return jsonify({"status": "error", "message": "Invalid microphone source"}), 400
+        print(f"[MIC] Switched to {source} microphone")
+        return jsonify({"status": "success", "mic_source": source})
+    return jsonify({"status": "error", "message": "Invalid microphone source"})
 
 @app.route('/get_mic_source')
 def get_mic_source():
-    with mic_lock:
-        return jsonify({"source": current_mic_source})
+    return jsonify({"mic_source": current_mic_source})
 
 @app.route('/listen', methods=['POST'])
 def listen():
-    """Placeholder - integrate with existing speech system"""
-    return jsonify({"text": "Integrate with existing speech recognition system", "mic_source": current_mic_source})
+    """Listen for speech using Raspberry Pi microphone"""
+    if current_mic_source != "raspberry_pi":
+        return jsonify({"error": "Raspberry Pi microphone not selected"})
+    
+    text = listen_for_speech()
+    return jsonify({"text": text})
 
-@app.route('/process_command', methods=['POST'])
-def process_command():
+@app.route('/process_voice', methods=['POST'])
+def process_voice():
     """Process voice command and return response"""
     data = request.get_json()
     text = data.get('text', '')
+    
+    if not text:
+        return jsonify({"error": "No text provided"})
+    
     response = process_voice_command(text)
     return jsonify({"response": response})
 
 @app.route('/speak', methods=['POST'])
 def speak():
-    """Placeholder - integrate with existing TTS system"""
-    return jsonify({"status": "handled_by_existing_system", "mic_source": current_mic_source})
+    """Convert text to speech using Raspberry Pi"""
+    data = request.get_json()
+    text = data.get('text', '')
+    
+    if text and current_mic_source == "raspberry_pi":
+        # Run TTS in background thread to avoid blocking
+        threading.Thread(target=speak_text, args=(text,), daemon=True).start()
+        return jsonify({"status": "speaking"})
+    
+    return jsonify({"status": "skipped"})
 
 if __name__ == '__main__':
     print("[CHATBOT] Starting AI Voice Assistant...")
-    print("[CHATBOT] Flask server starting on http://0.0.0.0:5001")
-    app.run(host='0.0.0.0', port=5001, debug=False, threaded=True)
+    print(f"[CHATBOT] Current microphone source: {current_mic_source}")
+    
+    try:
+        print("[WEB] Starting web server on http://0.0.0.0:8000")
+        app.run(host='0.0.0.0', port=8000, debug=False, threaded=True)
+    except KeyboardInterrupt:
+        print("\n[CHATBOT] Shutting down...")
