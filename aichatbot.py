@@ -90,27 +90,40 @@ def rotate_in_place(step_time=0.4):
 
 # ===== Camera / Explore Helpers ===== #
 def capture_image(index: int):
-    cap = cv2.VideoCapture(0)
-    if not cap.isOpened():
-        print("Camera Error: cannot open camera")
-        return None
-
-    # Warm up camera and discard first few frames
-    for _ in range(5):
-        cap.read()
-    time.sleep(0.5)
-    
-    ret, frame = cap.read()
-    cap.release()
-
-    if not ret or frame is None:
-        print("Camera Error: cannot read frame")
-        return None
-
     filename = f"explore_{index}.jpg"
-    cv2.imwrite(filename, frame)
-    print(f"Captured image: {filename}")
-    return filename
+    
+    # Try Raspberry Pi camera first
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['rpicam-jpeg', '-o', filename, '--width', '640', '--height', '480', '-n', '-t', '1'],
+            capture_output=True,
+            timeout=5
+        )
+        if result.returncode == 0 and os.path.exists(filename):
+            print(f"Captured image: {filename}")
+            return filename
+    except:
+        pass
+    
+    # Fallback to USB camera
+    try:
+        cap = cv2.VideoCapture(0)
+        if cap.isOpened():
+            for _ in range(5):
+                cap.read()
+            time.sleep(0.3)
+            ret, frame = cap.read()
+            cap.release()
+            if ret and frame is not None:
+                cv2.imwrite(filename, frame)
+                print(f"Captured image: {filename}")
+                return filename
+    except:
+        pass
+    
+    print("Camera Error: cannot capture image")
+    return None
 
 
 def explore_mode():
