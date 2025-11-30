@@ -160,8 +160,8 @@ def explore_mode():
     parts.append(
         "These are 8 images taken while a small robot rotated in place."
         " Describe, in simple language, what is around the robot: "
-        "things like walls, doors, open spaces, obstacles, people, or furniture."
-        " Give a short summary of the surroundings."
+        "things like walls, doors, open spaces, obstacles, people, or furniture, people , dress colors."
+        " Give a very short small summary of the surroundings."
     )
 
     try:
